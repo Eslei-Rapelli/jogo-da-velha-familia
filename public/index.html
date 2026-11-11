@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jogo da Velha da Família Online</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: 'Trebuchet MS', Arial, sans-serif;
+    background: linear-gradient(135deg, #ff9a9e, #fad0c4, #fbc2eb, #a6c1ee);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 16px;
+  }
+  .app {
+    background: #ffffff;
+    border-radius: 24px;
+    padding: 24px;
+    width: 100%;
+    max-width: 420px;
+    text-align: center;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.25);
+  }
+  h1 { margin: 0 0 16px; font-size: 26px; color: #ff4f81; }
+  .campo {
+    display: block;
+    width: 100%;
+    margin: 8px 0;
+    padding: 12px;
+    font-size: 18px;
+    border: 3px solid #ffd166;
+    border-radius: 12px;
+    text-align: center;
+  }
+  #codigoEntrada { text-transform: uppercase; letter-spacing: 6px; }
+  button.grande {
+    width: 100%;
+    margin-top: 10px;
+    padding: 14px;
+    font-size: 19px;
+    font-weight: bold;
+    color: #fff;
+    background: #06d6a0;
+    border: none;
+    border-radius: 14px;
+    cursor: pointer;
+  }
+  button.grande:active { transform: scale(0.97); }
+  .laranja { background: #ff9f1c !important; }
+  .roxo { background: #9d4edd !important; }
+  .ou { margin: 14px 0 4px; color: #888; font-weight: bold; }
+  #erro { color: #d90429; font-weight: bold; min-height: 24px; margin-top: 8px; }
+  #jogo, #aguardando { display: none; }
+  .codigoGrande {
+    font-size: 44px;
+    font-weight: bold;
+    letter-spacing: 10px;
+    color: #7b2cbf;
+    background: #fff3b0;
+    border-radius: 16px;
+    padding: 12px;
+    margin: 12px 0;
+  }
+  .placar { display: flex; gap: 10px; margin-bottom: 12px; }
+  .jogador {
+    flex: 1;
+    padding: 10px;
+    border-radius: 14px;
+    color: #fff;
+    font-weight: bold;
+    font-size: 16px;
+    opacity: 0.55;
+    transition: all 0.2s;
+    word-break: break-word;
+  }
+  .jogador.x { background: #ef476f; }
+  .jogador.o { background: #118ab2; }
+  .jogador.ativo { opacity: 1; transform: scale(1.06); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+  .jogador span { display: block; font-size: 30px; }
+  #mensagem {
+    min-height: 32px;
+    margin: 8px 0 12px;
+    font-size: 20px;
+    font-weight: bold;
+    color: #7b2cbf;
+  }
+  .tabuleiro { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .casa {
+    aspect-ratio: 1 / 1;
+    font-size: 52px;
+    font-weight: bold;
+    background: #fff3b0;
+    border: none;
+    border-radius: 16px;
+    cursor: pointer;
+  }
+  .casa:active { transform: scale(0.94); }
+  .casa.vencedora { background: #80ed99; }
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>🎉 Jogo da Velha da Família 🎉</h1>
+
+  <!-- Tela 1: nome e sala -->
+  <div id="inicio">
+    <input id="nome" class="campo" placeholder="Seu nome" maxlength="24">
+    <button class="grande" onclick="criarSala()">Criar sala</button>
+    <div class="ou">ou entre numa sala</div>
+    <input id="codigoEntrada" class="campo" placeholder="CÓDIGO" maxlength="4">
+    <button class="grande laranja" onclick="entrarSala()">Entrar na sala</button>
+    <div id="erro"></div>
+  </div>
+
+  <!-- Tela 2: esperando o outro jogador -->
+  <div id="aguardando">
+    <div>Passe este código para o outro jogador:</div>
+    <div class="codigoGrande" id="codigoMostrado"></div>
+    <div>Aguardando ele entrar...</div>
+  </div>
+
+  <!-- Tela 3: jogo -->
+  <div id="jogo">
+    <div class="placar">
+      <div id="cartaoX" class="jogador x"><span>❌</span><div id="rotuloX"></div><div id="pontosX">0</div></div>
+      <div id="cartaoO" class="jogador o"><span>⭕</span><div id="rotuloO"></div><div id="pontosO">0</div></div>
+    </div>
+    <div id="mensagem"></div>
+    <div class="tabuleiro" id="tabuleiro"></div>
+    <button class="grande laranja" id="botaoNova" onclick="novaPartida()" style="display:none">Nova partida</button>
+    <button class="grande roxo" onclick="sair()">Sair da sala</button>
+  </div>
+</div>
+
+<script>
+  var protocolo = location.protocol === 'https:' ? 'wss://' : 'ws://';
+  var ws = new WebSocket(protocolo + location.host);
+  var meuSimbolo = null;
+
+  function mostrar(tela) {
+    document.getElementById('inicio').style.display = tela === 'inicio' ? 'block' : 'none';
+    document.getElementById('aguardando').style.display = tela === 'aguardando' ? 'block' : 'none';
+    document.getElementById('jogo').style.display = tela === 'jogo' ? 'block' : 'none';
+  }
+
+  function pegarNome() {
+    return document.getElementById('nome').value.trim();
+  }
+
+  function criarSala() {
+    document.getElementById('erro').textContent = '';
+    ws.send(JSON.stringify({ tipo: 'criar', nome: pegarNome() }));
+  }
+
+  function entrarSala() {
+    document.getElementById('erro').textContent = '';
+    var codigo = document.getElementById('codigoEntrada').value.trim();
+    if (codigo.length !== 4) {
+      document.getElementById('erro').textContent = 'O código tem 4 letras.';
+      return;
+    }
+    ws.send(JSON.stringify({ tipo: 'entrar', nome: pegarNome(), codigo: codigo }));
+  }
+
+  function novaPartida() {
+    ws.send(JSON.stringify({ tipo: 'nova' }));
+  }
+
+  function sair() {
+    location.reload();
+  }
+
+  function jogar(i) {
+    ws.send(JSON.stringify({ tipo: 'jogar', casa: i }));
+  }
+
+  function desenhar(e) {
+    meuSimbolo = e.voce;
+    document.getElementById('rotuloX').textContent = e.nomes.X;
+    document.getElementById('rotuloO').textContent = e.nomes.O;
+    document.getElementById('pontosX').textContent = e.pontos.X;
+    document.getElementById('pontosO').textContent = e.pontos.O;
+
+    var tab = document.getElementById('tabuleiro');
+    tab.innerHTML = '';
+    for (var i = 0; i < 9; i++) {
+      var b = document.createElement('button');
+      b.className = 'casa';
+      b.textContent = e.casas[i] === 'X' ? '❌' : (e.casas[i] === 'O' ? '⭕' : '');
+      if (e.linhaVencedora && e.linhaVencedora.indexOf(i) !== -1) {
+        b.classList.add('vencedora');
+      }
+      (function (n) { b.onclick = function () { jogar(n); }; })(i);
+      tab.appendChild(b);
+    }
+
+    var msg = e.mensagem;
+    if (!e.fim) {
+      var nomeDaVez = e.nomes[e.vez];
+      msg = (e.vez === meuSimbolo) ? 'Sua vez, ' + nomeDaVez + '!' : 'Vez de ' + nomeDaVez + '...';
+    }
+    document.getElementById('mensagem').textContent = msg;
+    document.getElementById('cartaoX').classList.toggle('ativo', !e.fim && e.vez === 'X');
+    document.getElementById('cartaoO').classList.toggle('ativo', !e.fim && e.vez === 'O');
+    document.getElementById('botaoNova').style.display = e.fim ? 'block' : 'none';
+  }
+
+  ws.onmessage = function (evento) {
+    var e = JSON.parse(evento.data);
+    if (e.tipo === 'erro') {
+      document.getElementById('erro').textContent = e.texto;
+      return;
+    }
+    if (e.tipo === 'saiu') {
+      alert(e.texto);
+      location.reload();
+      return;
+    }
+    if (e.tipo === 'estado') {
+      if (!e.completa) {
+        document.getElementById('codigoMostrado').textContent = e.codigo;
+        mostrar('aguardando');
+      } else {
+        mostrar('jogo');
+        desenhar(e);
+      }
+    }
+  };
+
+  ws.onclose = function () {
+    document.getElementById('erro').textContent = 'Conexão perdida. Atualize a página.';
+  };
+</script>
+</body>
+</html>
