@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Jogo da Velha da Família Online</title>
+<title>Jogo da Velha da Família</title>
 <style>
   * { box-sizing: border-box; }
   body {
@@ -17,6 +17,7 @@
     padding: 16px;
   }
   .app {
+    position: relative;
     background: #ffffff;
     border-radius: 24px;
     padding: 24px;
@@ -52,9 +53,10 @@
   button.grande:active { transform: scale(0.97); }
   .laranja { background: #ff9f1c !important; }
   .roxo { background: #9d4edd !important; }
+  .azul { background: #118ab2 !important; }
   .ou { margin: 14px 0 4px; color: #888; font-weight: bold; }
   #erro { color: #d90429; font-weight: bold; min-height: 24px; margin-top: 8px; }
-  #jogo, #aguardando { display: none; }
+  #jogo, #aguardando, #nivelBox { display: none; }
   .codigoGrande {
     font-size: 44px;
     font-weight: bold;
@@ -100,19 +102,80 @@
   }
   .casa:active { transform: scale(0.94); }
   .casa.vencedora { background: #80ed99; }
+  .emojis { display: flex; justify-content: space-between; gap: 6px; margin-top: 14px; }
+  .emojis button {
+    flex: 1;
+    font-size: 26px;
+    padding: 8px 0;
+    background: #f1f1f1;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+  }
+  .emojis button:active { transform: scale(0.9); }
+  #somBotao {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 40px;
+    height: 40px;
+    font-size: 20px;
+    background: #f1f1f1;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+  }
+  .nivel { display: flex; gap: 8px; }
+  .nivel button { flex: 1; }
+  #emojiRecebido {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0);
+    font-size: 120px;
+    pointer-events: none;
+    transition: transform 0.25s;
+    z-index: 10;
+  }
+  #emojiRecebido.mostrar { transform: translate(-50%, -50%) scale(1); }
+  #emojiDe {
+    position: fixed;
+    top: 62%;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 18px;
+    font-weight: bold;
+    color: #fff;
+    background: rgba(0,0,0,0.6);
+    padding: 4px 12px;
+    border-radius: 12px;
+    display: none;
+    z-index: 10;
+  }
 </style>
 </head>
 <body>
 <div class="app">
+  <button id="somBotao" onclick="alternarSom()" title="Som">🔊</button>
   <h1>🎉 Jogo da Velha da Família 🎉</h1>
 
-  <!-- Tela 1: nome e sala -->
+  <!-- Tela 1: nome, sala e modo contra o computador -->
   <div id="inicio">
     <input id="nome" class="campo" placeholder="Seu nome" maxlength="24">
     <button class="grande" onclick="criarSala()">Criar sala</button>
     <div class="ou">ou entre numa sala</div>
     <input id="codigoEntrada" class="campo" placeholder="CÓDIGO" maxlength="4">
     <button class="grande laranja" onclick="entrarSala()">Entrar na sala</button>
+    <div class="ou">ou treine sozinho</div>
+    <button class="grande azul" onclick="mostrarNiveis()">🤖 Jogar contra o computador</button>
+    <div id="nivelBox">
+      <div class="ou">Escolha o nível:</div>
+      <div class="nivel">
+        <button class="grande" onclick="iniciarComputador('facil')">Fácil</button>
+        <button class="grande laranja" onclick="iniciarComputador('medio')">Médio</button>
+        <button class="grande roxo" onclick="iniciarComputador('dificil')">Difícil</button>
+      </div>
+    </div>
     <div id="erro"></div>
   </div>
 
@@ -131,31 +194,95 @@
     </div>
     <div id="mensagem"></div>
     <div class="tabuleiro" id="tabuleiro"></div>
+    <div class="emojis" id="barraEmojis">
+      <button onclick="enviarEmoji('😂')">😂</button>
+      <button onclick="enviarEmoji('👍')">👍</button>
+      <button onclick="enviarEmoji('😮')">😮</button>
+      <button onclick="enviarEmoji('😎')">😎</button>
+      <button onclick="enviarEmoji('😭')">😭</button>
+      <button onclick="enviarEmoji('🔥')">🔥</button>
+    </div>
     <button class="grande laranja" id="botaoNova" onclick="novaPartida()" style="display:none">Nova partida</button>
     <button class="grande roxo" onclick="sair()">Sair da sala</button>
   </div>
 </div>
 
+<div id="emojiRecebido"></div>
+<div id="emojiDe"></div>
+
 <script>
+  // ================= Som e vibração =================
+  var somLigado = localStorage.getItem('jvSom') !== 'off';
+  var audioCtx = null;
+
+  function atualizarBotaoSom() {
+    document.getElementById('somBotao').textContent = somLigado ? '🔊' : '🔇';
+  }
+  function alternarSom() {
+    somLigado = !somLigado;
+    localStorage.setItem('jvSom', somLigado ? 'on' : 'off');
+    atualizarBotaoSom();
+    if (somLigado) tocar(660, 0.1);
+  }
+  function tocar(freq, duracao, atraso) {
+    if (!somLigado) return;
+    try {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      var inicio = audioCtx.currentTime + (atraso || 0);
+      var osc = audioCtx.createOscillator();
+      var ganho = audioCtx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.value = freq;
+      ganho.gain.setValueAtTime(0.25, inicio);
+      ganho.gain.exponentialRampToValueAtTime(0.001, inicio + duracao);
+      osc.connect(ganho);
+      ganho.connect(audioCtx.destination);
+      osc.start(inicio);
+      osc.stop(inicio + duracao);
+    } catch (e) {}
+  }
+  function somJogada() { tocar(520, 0.12); }
+  function somVitoria() { tocar(523, 0.15, 0); tocar(659, 0.15, 0.15); tocar(784, 0.15, 0.3); tocar(1047, 0.35, 0.45); }
+  function somEmpate() { tocar(330, 0.2, 0); tocar(262, 0.3, 0.2); }
+  function somDerrota() { tocar(400, 0.2, 0); tocar(300, 0.2, 0.2); tocar(200, 0.4, 0.4); }
+  function vibrar(padrao) {
+    if (somLigado && navigator.vibrate) navigator.vibrate(padrao);
+  }
+  atualizarBotaoSom();
+
+  // ================= Estado geral =================
+  var modo = 'online';          // 'online' ou 'computador'
   var protocolo = location.protocol === 'https:' ? 'wss://' : 'ws://';
-  var ws = new WebSocket(protocolo + location.host);
+  var ws = null;
   var meuSimbolo = null;
+  var ultimoEstado = null;
 
   function mostrar(tela) {
     document.getElementById('inicio').style.display = tela === 'inicio' ? 'block' : 'none';
     document.getElementById('aguardando').style.display = tela === 'aguardando' ? 'block' : 'none';
     document.getElementById('jogo').style.display = tela === 'jogo' ? 'block' : 'none';
   }
+  function pegarNome() { return document.getElementById('nome').value.trim(); }
 
-  function pegarNome() {
-    return document.getElementById('nome').value.trim();
+  // ================= Online =================
+  function conectar(depois) {
+    ws = new WebSocket(protocolo + location.host);
+    ws.onopen = depois;
+    ws.onmessage = receber;
+    ws.onclose = function () {
+      if (modo === 'online') {
+        document.getElementById('erro').textContent = 'Conexão perdida. Atualize a página.';
+      }
+    };
   }
-
+  function enviarMsg(obj) {
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj));
+  }
   function criarSala() {
     document.getElementById('erro').textContent = '';
-    ws.send(JSON.stringify({ tipo: 'criar', nome: pegarNome() }));
+    modo = 'online';
+    conectar(function () { enviarMsg({ tipo: 'criar', nome: pegarNome() }); });
   }
-
   function entrarSala() {
     document.getElementById('erro').textContent = '';
     var codigo = document.getElementById('codigoEntrada').value.trim();
@@ -163,22 +290,44 @@
       document.getElementById('erro').textContent = 'O código tem 4 letras.';
       return;
     }
-    ws.send(JSON.stringify({ tipo: 'entrar', nome: pegarNome(), codigo: codigo }));
+    modo = 'online';
+    conectar(function () { enviarMsg({ tipo: 'entrar', nome: pegarNome(), codigo: codigo }); });
   }
-
   function novaPartida() {
-    ws.send(JSON.stringify({ tipo: 'nova' }));
+    if (modo === 'online') enviarMsg({ tipo: 'nova' });
+    else novaPartidaComputador();
   }
-
-  function sair() {
-    location.reload();
-  }
-
+  function sair() { location.reload(); }
   function jogar(i) {
-    ws.send(JSON.stringify({ tipo: 'jogar', casa: i }));
+    if (modo === 'online') enviarMsg({ tipo: 'jogar', casa: i });
+    else jogarContraComputador(i);
+  }
+  function enviarEmoji(e) {
+    if (modo === 'online') {
+      enviarMsg({ tipo: 'emoji', emoji: e });
+      mostrarEmoji(e, 'Você');
+    } else {
+      mostrarEmoji(e, 'Você');
+    }
+  }
+  var timerEmoji = null;
+  function mostrarEmoji(e, de) {
+    var el = document.getElementById('emojiRecebido');
+    var nome = document.getElementById('emojiDe');
+    el.textContent = e;
+    nome.textContent = de;
+    nome.style.display = 'block';
+    el.classList.add('mostrar');
+    clearTimeout(timerEmoji);
+    timerEmoji = setTimeout(function () {
+      el.classList.remove('mostrar');
+      nome.style.display = 'none';
+    }, 1800);
   }
 
   function desenhar(e) {
+    var anterior = ultimoEstado;
+    ultimoEstado = e;
     meuSimbolo = e.voce;
     document.getElementById('rotuloX').textContent = e.nomes.X;
     document.getElementById('rotuloO').textContent = e.nomes.O;
@@ -191,9 +340,7 @@
       var b = document.createElement('button');
       b.className = 'casa';
       b.textContent = e.casas[i] === 'X' ? '❌' : (e.casas[i] === 'O' ? '⭕' : '');
-      if (e.linhaVencedora && e.linhaVencedora.indexOf(i) !== -1) {
-        b.classList.add('vencedora');
-      }
+      if (e.linhaVencedora && e.linhaVencedora.indexOf(i) !== -1) b.classList.add('vencedora');
       (function (n) { b.onclick = function () { jogar(n); }; })(i);
       tab.appendChild(b);
     }
@@ -207,9 +354,24 @@
     document.getElementById('cartaoX').classList.toggle('ativo', !e.fim && e.vez === 'X');
     document.getElementById('cartaoO').classList.toggle('ativo', !e.fim && e.vez === 'O');
     document.getElementById('botaoNova').style.display = e.fim ? 'block' : 'none';
+
+    // Sons e vibração: só quando algo mudou
+    var mudouJogada = !anterior || anterior.casas.join('') !== e.casas.join('');
+    if (mudouJogada && e.casas.join('') !== '') {
+      if (e.fim && e.linhaVencedora) {
+        var quemGanhou = e.casas[e.linhaVencedora[0]];
+        if (quemGanhou === meuSimbolo) { somVitoria(); vibrar([100, 60, 100, 60, 200]); }
+        else { somDerrota(); vibrar(300); }
+      } else if (e.fim) {
+        somEmpate();
+      } else {
+        somJogada();
+        if (e.vez === meuSimbolo) vibrar(150);
+      }
+    }
   }
 
-  ws.onmessage = function (evento) {
+  function receber(evento) {
     var e = JSON.parse(evento.data);
     if (e.tipo === 'erro') {
       document.getElementById('erro').textContent = e.texto;
@@ -218,6 +380,12 @@
     if (e.tipo === 'saiu') {
       alert(e.texto);
       location.reload();
+      return;
+    }
+    if (e.tipo === 'emoji') {
+      mostrarEmoji(e.emoji, e.de);
+      tocar(880, 0.1);
+      vibrar(80);
       return;
     }
     if (e.tipo === 'estado') {
@@ -229,11 +397,184 @@
         desenhar(e);
       }
     }
-  };
+  }
 
-  ws.onclose = function () {
-    document.getElementById('erro').textContent = 'Conexão perdida. Atualize a página.';
-  };
+  // ================= Modo contra o computador =================
+  var LINHAS = [
+    [0,1,2],[3,4,5],[6,7,8],
+    [0,3,6],[1,4,7],[2,5,8],
+    [0,4,8],[2,4,6]
+  ];
+  var pc = null;
+
+  function mostrarNiveis() {
+    document.getElementById('nivelBox').style.display = 'block';
+  }
+
+  function iniciarComputador(nivel) {
+    modo = 'computador';
+    var nome = pegarNome() || 'Você';
+    var guardado = {};
+    try { guardado = JSON.parse(localStorage.getItem('jvPlacarPC_' + nivel)) || {}; } catch (e) {}
+    pc = {
+      nivel: nivel,
+      nome: nome,
+      casas: ['', '', '', '', '', '', '', '', ''],
+      vez: 'X',
+      inicio: 'X',
+      fim: false,
+      linha: null,
+      mensagem: '',
+      pontos: { X: guardado.X || 0, O: guardado.O || 0 },
+      pensando: false
+    };
+    mostrar('jogo');
+    desenharComputador();
+  }
+
+  function acharVencedor(casas) {
+    for (var k = 0; k < LINHAS.length; k++) {
+      var a = LINHAS[k][0], b = LINHAS[k][1], c = LINHAS[k][2];
+      if (casas[a] && casas[a] === casas[b] && casas[a] === casas[c]) return LINHAS[k];
+    }
+    return null;
+  }
+
+  function desenharComputador() {
+    var e = {
+      voce: 'X',
+      nomes: { X: pc.nome, O: '🤖 Computador (' + (pc.nivel === 'facil' ? 'fácil' : pc.nivel === 'medio' ? 'médio' : 'difícil') + ')' },
+      casas: pc.casas,
+      vez: pc.vez,
+      fim: pc.fim,
+      linhaVencedora: pc.linha,
+      mensagem: pc.mensagem,
+      pontos: pc.pontos
+    };
+    desenhar(e);
+  }
+
+  function guardarPlacarPC() {
+    localStorage.setItem('jvPlacarPC_' + pc.nivel, JSON.stringify(pc.pontos));
+  }
+
+  function terminouJogada(quem) {
+    var linha = acharVencedor(pc.casas);
+    if (linha) {
+      pc.fim = true;
+      pc.linha = linha;
+      pc.pontos[quem]++;
+      pc.mensagem = '🏆 ' + (quem === 'X' ? pc.nome : 'O computador') + ' ganhou!';
+      guardarPlacarPC();
+      return true;
+    }
+    if (pc.casas.indexOf('') === -1) {
+      pc.fim = true;
+      pc.mensagem = '🤝 Deu velha! Empate!';
+      return true;
+    }
+    pc.vez = quem === 'X' ? 'O' : 'X';
+    return false;
+  }
+
+  function jogarContraComputador(i) {
+    if (!pc || pc.fim || pc.pensando) return;
+    if (pc.vez !== 'X' || pc.casas[i] !== '') return;
+    pc.casas[i] = 'X';
+    var acabou = terminouJogada('X');
+    desenharComputador();
+    if (!acabou) vezDoComputador();
+  }
+
+  function vezDoComputador() {
+    pc.pensando = true;
+    setTimeout(function () {
+      var i = escolherJogada();
+      pc.casas[i] = 'O';
+      terminouJogada('O');
+      pc.pensando = false;
+      desenharComputador();
+    }, 600);
+  }
+
+  function casasVazias() {
+    var v = [];
+    for (var i = 0; i < 9; i++) if (pc.casas[i] === '') v.push(i);
+    return v;
+  }
+
+  // Procura uma casa que fecha uma linha para o símbolo informado
+  function casaQueFecha(simbolo) {
+    for (var k = 0; k < LINHAS.length; k++) {
+      var l = LINHAS[k];
+      var meus = 0, vazia = -1;
+      for (var j = 0; j < 3; j++) {
+        if (pc.casas[l[j]] === simbolo) meus++;
+        else if (pc.casas[l[j]] === '') vazia = l[j];
+      }
+      if (meus === 2 && vazia !== -1) return vazia;
+    }
+    return -1;
+  }
+
+  function aleatoria() {
+    var v = casasVazias();
+    return v[Math.floor(Math.random() * v.length)];
+  }
+
+  // Minimax: o computador (O) nunca perde no nível difícil
+  function minimax(casas, vezDeO) {
+    var linha = acharVencedor(casas);
+    if (linha) return casas[linha[0]] === 'O' ? 10 : -10;
+    if (casas.indexOf('') === -1) return 0;
+    var melhor = vezDeO ? -100 : 100;
+    for (var i = 0; i < 9; i++) {
+      if (casas[i] === '') {
+        casas[i] = vezDeO ? 'O' : 'X';
+        var valor = minimax(casas, !vezDeO);
+        casas[i] = '';
+        melhor = vezDeO ? Math.max(melhor, valor) : Math.min(melhor, valor);
+      }
+    }
+    return melhor;
+  }
+
+  function melhorJogada() {
+    var melhorValor = -100, escolha = -1;
+    for (var i = 0; i < 9; i++) {
+      if (pc.casas[i] === '') {
+        pc.casas[i] = 'O';
+        var valor = minimax(pc.casas, false);
+        pc.casas[i] = '';
+        if (valor > melhorValor) { melhorValor = valor; escolha = i; }
+      }
+    }
+    return escolha;
+  }
+
+  function escolherJogada() {
+    if (pc.nivel === 'facil') return aleatoria();
+    if (pc.nivel === 'medio') {
+      var ganhar = casaQueFecha('O');
+      if (ganhar !== -1) return ganhar;
+      var bloquear = casaQueFecha('X');
+      if (bloquear !== -1) return bloquear;
+      return aleatoria();
+    }
+    return melhorJogada();
+  }
+
+  function novaPartidaComputador() {
+    pc.casas = ['', '', '', '', '', '', '', '', ''];
+    pc.inicio = pc.inicio === 'X' ? 'O' : 'X';
+    pc.vez = pc.inicio;
+    pc.fim = false;
+    pc.linha = null;
+    pc.mensagem = '';
+    ultimoEstado = null;
+    desenharComputador();
+    if (pc.vez === 'O') vezDoComputador();
+  }
 </script>
 </body>
 </html>
