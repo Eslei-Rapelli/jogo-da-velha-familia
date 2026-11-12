@@ -228,6 +228,7 @@
     if (!somLigado) return;
     try {
       if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
       var inicio = audioCtx.currentTime + (atraso || 0);
       var osc = audioCtx.createOscillator();
       var ganho = audioCtx.createGain();
@@ -255,7 +256,7 @@
   var protocolo = location.protocol === 'https:' ? 'wss://' : 'ws://';
   var ws = null;
   var meuSimbolo = null;
-  var ultimoEstado = null;
+  var ultimasCasas = null;      // cópia do tabuleiro da última atualização (para saber se houve jogada nova)
 
   function mostrar(tela) {
     document.getElementById('inicio').style.display = tela === 'inicio' ? 'block' : 'none';
@@ -303,12 +304,8 @@
     else jogarContraComputador(i);
   }
   function enviarEmoji(e) {
-    if (modo === 'online') {
-      enviarMsg({ tipo: 'emoji', emoji: e });
-      mostrarEmoji(e, 'Você');
-    } else {
-      mostrarEmoji(e, 'Você');
-    }
+    if (modo === 'online') enviarMsg({ tipo: 'emoji', emoji: e });
+    mostrarEmoji(e, 'Você');
   }
   var timerEmoji = null;
   function mostrarEmoji(e, de) {
@@ -326,8 +323,6 @@
   }
 
   function desenhar(e) {
-    var anterior = ultimoEstado;
-    ultimoEstado = e;
     meuSimbolo = e.voce;
     document.getElementById('rotuloX').textContent = e.nomes.X;
     document.getElementById('rotuloO').textContent = e.nomes.O;
@@ -355,9 +350,12 @@
     document.getElementById('cartaoO').classList.toggle('ativo', !e.fim && e.vez === 'O');
     document.getElementById('botaoNova').style.display = e.fim ? 'block' : 'none';
 
-    // Sons e vibração: só quando algo mudou
-    var mudouJogada = !anterior || anterior.casas.join('') !== e.casas.join('');
-    if (mudouJogada && e.casas.join('') !== '') {
+    // Sons e vibração: só quando o tabuleiro mudou desde a última atualização
+    var atuais = e.casas.join(',');
+    var antes = ultimasCasas;
+    ultimasCasas = atuais;
+    var temJogada = e.casas.join('') !== '';
+    if (temJogada && atuais !== antes) {
       if (e.fim && e.linhaVencedora) {
         var quemGanhou = e.casas[e.linhaVencedora[0]];
         if (quemGanhou === meuSimbolo) { somVitoria(); vibrar([100, 60, 100, 60, 200]); }
@@ -413,6 +411,8 @@
 
   function iniciarComputador(nivel) {
     modo = 'computador';
+    // Libera o som do navegador com um toque do usuário
+    tocar(660, 0.08);
     var nome = pegarNome() || 'Você';
     var guardado = {};
     try { guardado = JSON.parse(localStorage.getItem('jvPlacarPC_' + nivel)) || {}; } catch (e) {}
@@ -428,6 +428,7 @@
       pontos: { X: guardado.X || 0, O: guardado.O || 0 },
       pensando: false
     };
+    ultimasCasas = null;
     mostrar('jogo');
     desenharComputador();
   }
@@ -441,15 +442,16 @@
   }
 
   function desenharComputador() {
+    var nomeNivel = pc.nivel === 'facil' ? 'fácil' : (pc.nivel === 'medio' ? 'médio' : 'difícil');
     var e = {
       voce: 'X',
-      nomes: { X: pc.nome, O: '🤖 Computador (' + (pc.nivel === 'facil' ? 'fácil' : pc.nivel === 'medio' ? 'médio' : 'difícil') + ')' },
-      casas: pc.casas,
+      nomes: { X: pc.nome, O: '🤖 Computador (' + nomeNivel + ')' },
+      casas: pc.casas.slice(),
       vez: pc.vez,
       fim: pc.fim,
       linhaVencedora: pc.linha,
       mensagem: pc.mensagem,
-      pontos: pc.pontos
+      pontos: { X: pc.pontos.X, O: pc.pontos.O }
     };
     desenhar(e);
   }
@@ -571,7 +573,7 @@
     pc.fim = false;
     pc.linha = null;
     pc.mensagem = '';
-    ultimoEstado = null;
+    ultimasCasas = null;
     desenharComputador();
     if (pc.vez === 'O') vezDoComputador();
   }
