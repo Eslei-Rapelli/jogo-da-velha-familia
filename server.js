@@ -4,8 +4,52 @@ const path = require('path');
 const WebSocket = require('ws');
 
 const PORTA = process.env.PORT || 3000;
+const ARQUIVO_PLACARES = path.join(__dirname, 'placares.json');
 
-// Servidor web simples: entrega a página do jogo
+// ---------- Placar guardado (por dupla de nomes) ----------
+let placares = {};
+try {
+  placares = JSON.parse(fs.readFileSync(ARQUIVO_PLACARES, 'utf8'));
+} catch (e) {
+  placares = {};
+}
+
+function salvarPlacares() {
+  try {
+    fs.writeFileSync(ARQUIVO_PLACARES, JSON.stringify(placares));
+  } catch (e) {
+    // Se não conseguir gravar, o jogo continua normalmente
+  }
+}
+
+function normalizar(nome) {
+  return String(nome || '').trim().toLowerCase();
+}
+
+function chaveDupla(nomeA, nomeB) {
+  return [normalizar(nomeA), normalizar(nomeB)].sort().join('|');
+}
+
+// Devolve os pontos de cada nome, na dupla guardada
+function pontosDaDupla(sala) {
+  const chave = chaveDupla(sala.jogadores.X.nome, sala.jogadores.O.nome);
+  const guardado = placares[chave] || {};
+  return {
+    X: guardado[normalizar(sala.jogadores.X.nome)] || 0,
+    O: guardado[normalizar(sala.jogadores.O.nome)] || 0
+  };
+}
+
+function guardarPontos(sala) {
+  const chave = chaveDupla(sala.jogadores.X.nome, sala.jogadores.O.nome);
+  const obj = {};
+  obj[normalizar(sala.jogadores.X.nome)] = sala.pontos.X;
+  obj[normalizar(sala.jogadores.O.nome)] = sala.pontos.O;
+  placares[chave] = obj;
+  salvarPlacares();
+}
+
+// ---------- Servidor web: entrega a página ----------
 const servidor = http.createServer((req, res) => {
   const arquivo = path.join(__dirname, 'public', 'index.html');
   fs.readFile(arquivo, (erro, dados) => {
@@ -20,8 +64,6 @@ const servidor = http.createServer((req, res) => {
 });
 
 const wss = new WebSocket.Server({ server: servidor });
-
-// Todas as salas ficam guardadas aqui, pelo código
 const salas = {};
 
 const LINHAS = [
@@ -29,6 +71,8 @@ const LINHAS = [
   [0,3,6],[1,4,7],[2,5,8],
   [0,4,8],[2,4,6]
 ];
+
+const EMOJIS_PERMITIDOS = ['😂', '👍', '😮', '😎', '😭', '🔥'];
 
 function gerarCodigo() {
   const letras = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -45,7 +89,7 @@ function gerarCodigo() {
 function novaSala(codigo) {
   return {
     codigo: codigo,
-    jogadores: { X: null, O: null },   // cada um: { ws, nome }
+    jogadores: { X: null, O: null },
     casas: ['', '', '', '', '', '', '', '', ''],
     vez: 'X',
     inicio: 'X',
@@ -141,6 +185,8 @@ wss.on('connection', (ws) => {
       ws.sala = codigo;
       ws.simbolo = 'O';
       sala.mensagem = '';
+      // Recupera o placar guardado dessa dupla
+      sala.pontos = pontosDaDupla(sala);
       avisarSala(sala);
       return;
     }
@@ -153,7 +199,7 @@ wss.on('connection', (ws) => {
       const i = Number(msg.casa);
       if (!sala.jogadores.X || !sala.jogadores.O) return;
       if (sala.fim) return;
-      if (sala.vez !== ws.simbolo) return;          // não é a sua vez
+      if (sala.vez !== ws.simbolo) return;
       if (!(i >= 0 && i <= 8)) return;
       if (sala.casas[i] !== '') return;
 
@@ -164,6 +210,7 @@ wss.on('connection', (ws) => {
         sala.linhaVencedora = linha;
         sala.pontos[ws.simbolo]++;
         sala.mensagem = '🏆 ' + sala.jogadores[ws.simbolo].nome + ' ganhou!';
+        guardarPontos(sala);
       } else if (sala.casas.indexOf('') === -1) {
         sala.fim = true;
         sala.mensagem = '🤝 Deu velha! Empate!';
@@ -184,6 +231,21 @@ wss.on('connection', (ws) => {
       sala.linhaVencedora = null;
       sala.mensagem = '';
       avisarSala(sala);
+      return;
+    }
+
+    // Emoji rápido: repassa para o outro jogador
+    if (msg.tipo === 'emoji') {
+      if (EMOJIS_PERMITIDOS.indexOf(msg.emoji) === -1) return;
+      const outro = ws.simbolo === 'X' ? 'O' : 'X';
+      const j = sala.jogadores[outro];
+      if (j) {
+        enviar(j.ws, {
+          tipo: 'emoji',
+          emoji: msg.emoji,
+          de: sala.jogadores[ws.simbolo].nome
+        });
+      }
       return;
     }
   });
